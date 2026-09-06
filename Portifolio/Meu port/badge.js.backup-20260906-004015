@@ -1,0 +1,42 @@
+'use strict';
+(() => {
+ const stage=document.getElementById('badgeStage');if(!stage)return;
+ const body=document.getElementById('badgeBody'),canvas=document.getElementById('badgeRope');
+ const ctx=canvas.getContext('2d'),motion=matchMedia('(prefers-reduced-motion: reduce)');
+ const flip=document.getElementById('badgeFlip'),status=document.getElementById('badgeStatus');
+ let width=0,height=0,cardHeight=0,cardWidth=0,length=95,x=-38,y=0,vx=30,vy=0,angle=0,flipped=false,drag=null,frame=null,last=0,visible=true;
+ function measure(){const r=stage.getBoundingClientRect();width=r.width;height=r.height;cardHeight=body.offsetHeight;cardWidth=body.offsetWidth;length=Math.max(72,Math.min(112,height-cardHeight-45));const dpr=Math.min(devicePixelRatio||1,2);canvas.width=width*dpr;canvas.height=height*dpr;ctx?.setTransform(dpr,0,0,dpr,0,0);}
+ function paint(){
+   const tilt=drag?Math.max(-10,Math.min(10,vx*.025)):0;
+   body.style.transform=`translate3d(${x}px,${y}px,0) rotate(${angle}deg) rotateY(${tilt}deg)`;
+   if(!ctx)return;ctx.clearRect(0,0,width,height);
+   const anchorX=width/2,anchorY=12,bobX=anchorX+x,bobY=y+14;
+   const distance=Math.hypot(x,bobY-anchorY),slack=Math.max(0,length-distance)*.7;
+   ctx.lineCap='round';ctx.beginPath();ctx.moveTo(anchorX,anchorY);ctx.quadraticCurveTo(anchorX+x*.4+slack*.35,(anchorY+bobY)/2+slack,bobX,bobY);ctx.strokeStyle='#342041';ctx.lineWidth=12;ctx.stroke();ctx.strokeStyle='#c8b1df';ctx.lineWidth=2;ctx.stroke();
+ }
+ function tick(time){frame=null;const dt=Math.min((time-last)/1000||.016,.032);last=time;
+   if(!drag&&!motion.matches){
+     // Tension only stretches the strap; gravity and damping settle the badge.
+     for(let step=0;step<3;step++){const h=dt/3;const dist=Math.max(1,Math.hypot(x,y));const stretch=Math.max(0,dist-length);const force=stretch*75;vx+=(-x/dist*force-vx*3.2)*h;vy+=(850-y/dist*force-vy*3.2)*h;x+=vx*h;y+=vy*h;
+       const limit=Math.max(12,(width-cardWidth)/2+18);if(Math.abs(x)>limit){x=Math.sign(x)*limit;vx*=-.32;}const bottom=Math.max(length,height-cardHeight-22);if(y>bottom){y=bottom;vy*=-.3;}}
+     const target=-Math.atan2(x,Math.max(y,25))*180/Math.PI*.64;angle+=(target-angle)*Math.min(1,dt*8);
+   }
+   paint();const resting=Math.abs(vx)+Math.abs(vy)<.5&&Math.abs(angle)<.1&&Math.abs(x)<.15;
+   if(visible&&!document.hidden&&!motion.matches&&!drag&&!resting)frame=requestAnimationFrame(tick);
+ }
+ function run(){if(frame===null&&visible&&!document.hidden){last=performance.now();frame=requestAnimationFrame(tick);}}
+ function stop(){if(frame!==null)cancelAnimationFrame(frame);frame=null;}
+ function center(){drag=null;body.classList.remove('dragging');x=0;y=length+850/75;vx=0;vy=0;angle=0;stop();paint();status.textContent='Crachá centralizado.';}
+ function swing(direction=1){if(motion.matches){x=direction*20;angle=direction*-5;paint();return;}vx+=direction*360;vy-=95;run();}
+ function turn(){flipped=!flipped;document.getElementById('badgeInner').classList.toggle('flipped',flipped);flip.setAttribute('aria-pressed',String(flipped));document.getElementById('badgeFront').setAttribute('aria-hidden',String(flipped));document.getElementById('badgeBack').setAttribute('aria-hidden',String(!flipped));status.textContent=flipped?'Verso do crachá.':'Frente do crachá.';}
+ body.addEventListener('pointerdown',e=>{if(e.button!==0||!e.isPrimary||drag)return;const r=stage.getBoundingClientRect();drag={id:e.pointerId,ox:e.clientX-r.left-width/2-x,oy:e.clientY-r.top-y,lastX:e.clientX,lastY:e.clientY,lastT:performance.now()};stop();body.setPointerCapture(e.pointerId);body.classList.add('dragging');body.focus({preventScroll:true});});
+ body.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;const r=stage.getBoundingClientRect(),now=performance.now(),dt=Math.max(.016,(now-drag.lastT)/1000),limit=Math.max(20,(width-cardWidth)/2+24);x=Math.max(-limit,Math.min(limit,e.clientX-r.left-width/2-drag.ox));y=Math.max(26,Math.min(height-cardHeight-16,e.clientY-r.top-drag.oy));vx=Math.max(-700,Math.min(700,(e.clientX-drag.lastX)/dt));vy=Math.max(-500,Math.min(500,(e.clientY-drag.lastY)/dt));angle=-x*.1;drag.lastX=e.clientX;drag.lastY=e.clientY;drag.lastT=now;paint();});
+ function release(){if(!drag)return;const id=drag.id;if(performance.now()-drag.lastT>120){vx=0;vy=0;}drag=null;body.classList.remove('dragging');if(body.hasPointerCapture(id))body.releasePointerCapture(id);if(motion.matches){vx=vy=0;paint();}else run();}
+ for(const name of ['pointerup','pointercancel','lostpointercapture'])body.addEventListener(name,release);
+ body.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' ','Home','Escape'].includes(e.key))e.preventDefault();if(e.key==='ArrowLeft')swing(-1);if(e.key==='ArrowRight')swing(1);if(e.key==='ArrowUp'||e.key==='ArrowDown')swing(e.key==='ArrowUp'?1:-1);if(e.key===' ')turn();if(e.key==='Home'||e.key==='Escape')center();});
+ document.getElementById('badgeSwing').addEventListener('click',()=>swing());flip.addEventListener('click',turn);document.getElementById('badgeReset').addEventListener('click',center);
+ new ResizeObserver(()=>{measure();if(motion.matches)center();else{y=Math.min(y,height-cardHeight-22);run();}}).observe(stage);
+ new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;if(visible)run();else{release();stop();}}).observe(stage);
+ document.addEventListener('visibilitychange',()=>{if(document.hidden){release();stop();}else run();});addEventListener('blur',release);motion.addEventListener('change',center);
+ measure();if(motion.matches)center();else{y=15;run();}
+})();
